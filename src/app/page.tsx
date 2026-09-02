@@ -16,7 +16,8 @@ export default function LoginPage() {
       body: JSON.stringify({ pin }),
     });
     if (!res.ok) {
-      setError("PIN incorrecto");
+      const data = await res.json().catch(() => ({}));
+      setError(res.status === 401 ? "PIN incorrecto" : data.error || "Error al conectar. Intenta de nuevo.");
       return;
     }
     const data = await res.json();
@@ -30,8 +31,8 @@ export default function LoginPage() {
         onSubmit={handleLogin}
         className="bg-white rounded-2xl shadow p-8 w-full max-w-sm flex flex-col gap-4"
       >
-        <h1 className="text-xl font-medium text-center">Cegonzz Cold Storage</h1>
-        <p className="text-sm text-neutral-500 text-center">Ingresa tu PIN de operador</p>
+        <h1 className="text-xl font-semibold text-center text-neutral-900">Cegonzz Cold Storage</h1>
+        <p className="text-sm text-neutral-700 text-center">Ingresa tu PIN de operador</p>
         <input
           type="password"
           inputMode="numeric"
@@ -48,7 +49,7 @@ export default function LoginPage() {
         >
           Entrar
         </button>
-        <p className="text-xs text-neutral-400 text-center">PIN de prueba: 1234</p>
+        <p className="text-xs text-neutral-600 text-center">PIN de prueba: 1234</p>
       </form>
     </main>
   );

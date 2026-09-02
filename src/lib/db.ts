@@ -1,75 +1,95 @@
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
+import postgres from "postgres";
 
-const dbPath = path.join(process.cwd(), "data", "almacen.db");
-fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+// La URL de conexión viene de una variable de entorno que Vercel llena
+// automáticamente cuando conectas tu base de datos de Neon.
+const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || "";
 
-const db = new Database(dbPath);
-db.pragma("journal_mode = WAL");
+const sql = postgres(connectionString, { ssl: "require" });
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS operadores (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nombre TEXT NOT NULL,
-  pin TEXT NOT NULL UNIQUE
-);
+let inicializado = false;
 
-CREATE TABLE IF NOT EXISTS clientes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nombre TEXT NOT NULL UNIQUE
-);
+export async function initDb() {
+  if (inicializado) return;
+  inicializado = true;
 
-CREATE TABLE IF NOT EXISTS ubicaciones (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  codigo TEXT NOT NULL UNIQUE,
-  capacidad INTEGER NOT NULL DEFAULT 4
-);
+  await sql`
+    CREATE TABLE IF NOT EXISTS operadores (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      pin TEXT NOT NULL UNIQUE
+    )
+  `;
 
-CREATE TABLE IF NOT EXISTS tarimas (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  codigo TEXT NOT NULL UNIQUE,
-  cliente_id INTEGER NOT NULL,
-  estado TEXT NOT NULL DEFAULT 'fuera', -- 'dentro' | 'fuera'
-  ubicacion_id INTEGER,
-  orden_fifo INTEGER,
-  FOREIGN KEY (cliente_id) REFERENCES clientes(id),
-  FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id)
-);
+  await sql`
+    CREATE TABLE IF NOT EXISTS clientes (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL UNIQUE
+    )
+  `;
 
-CREATE TABLE IF NOT EXISTS movimientos (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  tarima_id INTEGER NOT NULL,
-  ubicacion_id INTEGER NOT NULL,
-  tipo TEXT NOT NULL, -- 'entrada' | 'salida'
-  operador_id INTEGER NOT NULL,
-  fecha TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-  FOREIGN KEY (tarima_id) REFERENCES tarimas(id),
-  FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id),
-  FOREIGN KEY (operador_id) REFERENCES operadores(id)
-);
-`);
+  await sql`
+    CREATE TABLE IF NOT EXISTS ubicaciones (
+      id SERIAL PRIMARY KEY,
+      codigo TEXT NOT NULL UNIQUE,
+      capacidad INTEGER NOT NULL DEFAULT 4
+    )
+  `;
 
-// Seed inicial: operador de prueba y algunas ubicaciones si no existen
-const opCount = db.prepare("SELECT COUNT(*) as c FROM operadores").get() as { c: number };
-if (opCount.c === 0) {
-  db.prepare("INSERT INTO operadores (nombre, pin) VALUES (?, ?)").run("Mauricio", "1234");
-}
+  await sql`
+    CREATE TABLE IF NOT EXISTS tarimas (
+      id SERIAL PRIMARY KEY,
+      codigo TEXT NOT NULL UNIQUE,
+      cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+      estado TEXT NOT NULL DEFAULT 'fuera',
+      ubicacion_id INTEGER REFERENCES ubicaciones(id),
+      orden_fifo INTEGER
+    )
+  `;
 
-const ubiCount = db.prepare("SELECT COUNT(*) as c FROM ubicaciones").get() as { c: number };
-if (ubiCount.c === 0) {
-  const insert = db.prepare("INSERT INTO ubicaciones (codigo) VALUES (?)");
-  const zonas = [1, 2, 3, 4];
-  for (const z of zonas) {
-    for (let r = 1; r <= 5; r++) {
-      for (let p = 1; p <= 5; p++) {
-        for (let n = 1; n <= 5; n++) {
-          const codigo = `Z${z}-R${String(r).padStart(2, "0")}-P${String(p).padStart(2, "0")}-N${String(n).padStart(2, "0")}`;
-          insert.run(codigo);
+  await sql`
+    CREATE TABLE IF NOT EXISTS movimientos (
+      id SERIAL PRIMARY KEY,
+      tarima_id INTEGER NOT NULL REFERENCES tarimas(id),
+      ubicacion_id INTEGER NOT NULL REFERENCES ubicaciones(id),
+      tipo TEXT NOT NULL,
+      operador_id INTEGER NOT NULL REFERENCES operadores(id),
+      fecha TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  const [{ count: opCount }] = await sql`SELECT COUNT(*)::int as count FROM operadores`;
+  if (opCount === 0) {
+    await sql`INSERT INTO operadores (nombre, pin) VALUES ('Mauricio', '1234')`;
+  }
+
+  const [{ count: ubiCount }] = await sql`SELECT COUNT(*)::int as count FROM ubicaciones`;
+  if (ubiCount === 0) {
+    const codigos: string[] = [];
+    for (let z = 1; z <= 4; z++) {
+      for (let r = 1; r <= 5; r++) {
+        for (let p = 1; p <= 5; p++) {
+          for (let n = 1; n <= 5; n++) {
+            codigos.push(
+              `Z${z}-R${String(r).padStart(2, "0")}-P${String(p).padStart(2, "0")}-N${String(n).padStart(2, "0")}`
+            );
+          }
         }
       }
     }
+    // Insertar en lotes para no exceder límites de una sola consulta
+    const loteSize = 500;
+    for (let i = 0; i < codigos.length; i += loteSize) {
+      const lote = codigos.slice(i, i + loteSize).map((codigo) => ({ codigo }));
+      await sql`INSERT INTO ubicaciones ${sql(lote, "codigo")}`;
+    }
+  }
+
+  // Ubicación virtual "ANDEN" — donde quedan las tarimas recién bajadas del tráiler,
+  // antes de que alguien las acomode en su posición final de cámara
+  const andenExiste = await sql`SELECT id FROM ubicaciones WHERE codigo = 'ANDEN'`;
+  if (andenExiste.length === 0) {
+    await sql`INSERT INTO ubicaciones (codigo, capacidad) VALUES ('ANDEN', 99999)`;
   }
 }
 
-export default db;
+export default sql;
