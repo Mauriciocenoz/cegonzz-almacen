@@ -27,6 +27,19 @@ export async function initDb() {
       nombre TEXT NOT NULL UNIQUE
     )
   `;
+  await sql`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS codigo_base INTEGER`;
+
+  // Catálogo de productos por cliente — cada producto tiene un código único
+  // dentro del bloque de 1000 asignado a su cliente
+  await sql`
+    CREATE TABLE IF NOT EXISTS productos (
+      id SERIAL PRIMARY KEY,
+      cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+      codigo INTEGER NOT NULL UNIQUE,
+      descripcion TEXT NOT NULL,
+      marca TEXT
+    )
+  `;
 
   await sql`
     CREATE TABLE IF NOT EXISTS ubicaciones (
@@ -112,6 +125,7 @@ export async function initDb() {
 
   // Temperatura por tarima (la captura el operador de recepción, no Mesa de Control)
   await sql`ALTER TABLE tarimas ADD COLUMN IF NOT EXISTS temperatura TEXT`;
+  await sql`ALTER TABLE tarimas ADD COLUMN IF NOT EXISTS codigo_proveedor TEXT`;
 
   // Servicios extra facturables por tarima (traspaleo, romaneo, etc.)
   await sql`
@@ -133,6 +147,12 @@ export async function initDb() {
       operador_id INTEGER NOT NULL REFERENCES operadores(id),
       fecha TIMESTAMP NOT NULL DEFAULT NOW()
     )
+  `;
+  await sql`ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS cliente_id INTEGER REFERENCES clientes(id)`;
+  // Rellenar cliente_id en movimientos viejos que no lo tenían (con el cliente actual de su tarima)
+  await sql`
+    UPDATE movimientos m SET cliente_id = t.cliente_id
+    FROM tarimas t WHERE m.tarima_id = t.id AND m.cliente_id IS NULL
   `;
 
   const [{ count: opCount }] = await sql`SELECT COUNT(*)::int as count FROM operadores`;

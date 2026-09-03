@@ -5,6 +5,8 @@ import JsBarcode from "jsbarcode";
 
 type Cliente = { id: number; nombre: string };
 
+type ProductoResultado = { codigo: number; descripcion: string; marca: string | null };
+
 type UltimaTarima = {
   codigo: string;
   kilos: string;
@@ -37,23 +39,26 @@ export default function RecepcionPage() {
   const [folio, setFolio] = useState("");
   const [editandoCliente, setEditandoCliente] = useState(true);
 
-  // Datos del lote actual — se llenan una vez y aplican a varias tarimas seguidas
   const [lote, setLote] = useState("");
   const [caducidad, setCaducidad] = useState("");
   const [embarque, setEmbarque] = useState("");
   const [editandoLote, setEditandoLote] = useState(true);
 
-  const [tarimaCodigo, setTarimaCodigo] = useState("");
+  const [codigoProveedor, setCodigoProveedor] = useState("");
   const [kilos, setKilos] = useState("");
   const [temperatura, setTemperatura] = useState("");
+  const [noCajas, setNoCajas] = useState("");
+  const [fechaEmpaque, setFechaEmpaque] = useState("");
+
   const [sku, setSku] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [marca, setMarca] = useState("");
-  const [fechaEmpaque, setFechaEmpaque] = useState("");
-  const [noCajas, setNoCajas] = useState("");
-  const [cajasOrigen, setCajasOrigen] = useState("");
-  const [tarimasAlmacenar, setTarimasAlmacenar] = useState("");
-  const [sinCodigo, setSinCodigo] = useState(false);
+  const [productoQuery, setProductoQuery] = useState("");
+  const [productoResultados, setProductoResultados] = useState<ProductoResultado[]>([]);
+  const [productoSeleccionado, setProductoSeleccionado] = useState(false);
+  const [mostrarNuevoProducto, setMostrarNuevoProducto] = useState(false);
+  const [nuevaDescripcion, setNuevaDescripcion] = useState("");
+  const [nuevaMarca, setNuevaMarca] = useState("");
 
   const [mostrarServicios, setMostrarServicios] = useState(false);
   const [servicios, setServicios] = useState<Record<string, string>>({});
@@ -66,8 +71,8 @@ export default function RecepcionPage() {
   const [ahora, setAhora] = useState<Date>(new Date());
   const [etiquetaParaImprimir, setEtiquetaParaImprimir] = useState<UltimaTarima | null>(null);
 
-  const tarimaInputRef = useRef<HTMLInputElement>(null);
   const kilosInputRef = useRef<HTMLInputElement>(null);
+  const productoInputRef = useRef<HTMLInputElement>(null);
   const barcodeRef = useRef<SVGSVGElement>(null);
   const barcodePrintRef = useRef<SVGSVGElement>(null);
 
@@ -100,6 +105,22 @@ export default function RecepcionPage() {
     if (barcodePrintRef.current) JsBarcode(barcodePrintRef.current, etiquetaParaImprimir.codigo, opciones);
   }, [etiquetaParaImprimir]);
 
+  // Buscar productos del catálogo mientras el operador escribe (por descripción o código)
+  useEffect(() => {
+    if (productoSeleccionado || !clienteId || productoQuery.trim().length < 2) {
+      setProductoResultados([]);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      const res = await fetch(
+        `/api/productos?cliente_id=${clienteId}&buscar=${encodeURIComponent(productoQuery)}`
+      );
+      const data = await res.json();
+      setProductoResultados(data.resultados || []);
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [productoQuery, clienteId, productoSeleccionado]);
+
   async function cargarClientes() {
     const res = await fetch("/api/clientes");
     setClientes(await res.json());
@@ -123,25 +144,49 @@ export default function RecepcionPage() {
     }
   }
 
-  async function confirmarCliente() {
-    setMensaje("");
-    if (!clienteId) {
-      setMensaje("Selecciona el cliente antes de continuar");
-      return;
-    }
-    const res = await fetch("/api/recepcion", {
+  function seleccionarProducto(p: ProductoResultado) {
+    setSku(String(p.codigo));
+    setDescripcion(p.descripcion);
+    setMarca(p.marca || "");
+    setProductoSeleccionado(true);
+    setProductoQuery(`${p.codigo} · ${p.descripcion}`);
+    setProductoResultados([]);
+  }
+
+  function limpiarProducto() {
+    setSku("");
+    setDescripcion("");
+    setMarca("");
+    setProductoSeleccionado(false);
+    setProductoQuery("");
+    setProductoResultados([]);
+    setMostrarNuevoProducto(false);
+  }
+
+  async function agregarProductoNuevo() {
+    if (!nuevaDescripcion.trim() || !clienteId) return;
+    const res = await fetch("/api/productos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cliente_id: Number(clienteId), operador_id: operador?.id }),
+      body: JSON.stringify({
+        cliente_id: Number(clienteId),
+        descripcion: nuevaDescripcion,
+        marca: nuevaMarca || null,
+      }),
     });
     const data = await res.json();
     if (!res.ok) {
-      setMensaje(data.error || "Error al iniciar la recepción");
+      setMensaje(data.error);
       return;
     }
-    setRecepcionId(data.id);
-    setFolio(data.folio);
-    setEditandoCliente(false);
+    setSku(String(data.codigo));
+    setDescripcion(data.descripcion);
+    setMarca(data.marca || "");
+    setProductoSeleccionado(true);
+    setProductoQuery(`${data.codigo} · ${data.descripcion}`);
+    setMostrarNuevoProducto(false);
+    setNuevaDescripcion("");
+    setNuevaMarca("");
   }
 
   async function recibirTarima() {
@@ -155,24 +200,12 @@ export default function RecepcionPage() {
       kilosInputRef.current?.focus();
       return;
     }
-    if (!sinCodigo && !tarimaCodigo) return;
-
-    const codigoAEnviar = sinCodigo ? "" : tarimaCodigo;
-
-    if (!sinCodigo) {
-      const buscar = await fetch(`/api/tarima?codigo=${encodeURIComponent(tarimaCodigo)}`);
-      const buscarData = await buscar.json();
-      if (buscarData.found) {
-        setMensaje("Esa tarima ya está registrada.");
-        return;
-      }
-    }
 
     const alta = await fetch("/api/tarima", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        codigo: codigoAEnviar,
+        codigo_proveedor: codigoProveedor || null,
         cliente_id: Number(clienteId),
         kilos,
         temperatura: temperatura || null,
@@ -184,8 +217,6 @@ export default function RecepcionPage() {
         marca: marca || null,
         fecha_empaque: fechaEmpaque || null,
         no_cajas: noCajas || null,
-        cajas_origen: cajasOrigen || null,
-        tarimas_almacenar: tarimasAlmacenar || null,
         recepcion_id: recepcionId,
       }),
     });
@@ -242,24 +273,19 @@ export default function RecepcionPage() {
     setUltimas((prev) => [nuevaTarima, ...prev].slice(0, 5));
     setHoraInicio((prev) => prev ?? new Date());
     setHoraUltima(new Date());
-    setTarimaCodigo("");
+    setCodigoProveedor("");
     setKilos("");
     setTemperatura("");
-    setSku("");
-    setDescripcion("");
-    setMarca("");
-    setFechaEmpaque("");
     setNoCajas("");
-    setCajasOrigen("");
-    setTarimasAlmacenar("");
+    setFechaEmpaque("");
+    limpiarProducto();
     setServicios({});
     setMostrarServicios(false);
 
-    if (sinCodigo) {
-      setEtiquetaParaImprimir(nuevaTarima);
-    }
+    // Cada tarima recibida siempre queda lista con su etiqueta propia para imprimir
+    setEtiquetaParaImprimir(nuevaTarima);
 
-    tarimaInputRef.current?.focus();
+    productoInputRef.current?.focus();
   }
 
   function imprimirEtiqueta() {
@@ -398,7 +424,26 @@ export default function RecepcionPage() {
                   </div>
                 )}
                 <button
-                  onClick={confirmarCliente}
+                  onClick={async () => {
+                    setMensaje("");
+                    if (!clienteId) {
+                      setMensaje("Selecciona el cliente antes de continuar");
+                      return;
+                    }
+                    const res = await fetch("/api/recepcion", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ cliente_id: Number(clienteId), operador_id: operador?.id }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                      setMensaje(data.error || "Error al iniciar la recepción");
+                      return;
+                    }
+                    setRecepcionId(data.id);
+                    setFolio(data.folio);
+                    setEditandoCliente(false);
+                  }}
                   className="bg-blue-900 text-white rounded-lg py-2 text-sm font-medium"
                 >
                   Confirmar y empezar a recibir
@@ -430,12 +475,15 @@ export default function RecepcionPage() {
                   onChange={(e) => setCaducidad(e.target.value)}
                   className={inputClass}
                 />
-                <input
-                  value={embarque}
-                  onChange={(e) => setEmbarque(e.target.value)}
-                  placeholder="Embarque"
-                  className={inputClass}
-                />
+                <div>
+                  <label className="text-xs text-neutral-700">Fecha de embarque</label>
+                  <input
+                    type="date"
+                    value={embarque}
+                    onChange={(e) => setEmbarque(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
                 <button
                   onClick={() => setEditandoLote(false)}
                   disabled={!recepcionId}
@@ -452,34 +500,20 @@ export default function RecepcionPage() {
           </div>
 
           {/* Captura de tarima */}
-          <div className="flex items-center gap-2">
+          <div>
+            <label className="text-xs text-neutral-700">Código del proveedor (si trae, opcional)</label>
             <input
-              type="checkbox"
-              id="sinCodigo"
-              checked={sinCodigo}
-              onChange={(e) => setSinCodigo(e.target.checked)}
-              className="w-4 h-4"
+              value={codigoProveedor}
+              onChange={(e) => setCodigoProveedor(e.target.value)}
+              placeholder="Escanea el código del proveedor, si tiene"
+              disabled={!recepcionId || editandoLote}
+              className={`${inputClass} mt-1 disabled:bg-neutral-100`}
             />
-            <label htmlFor="sinCodigo" className="text-xs text-neutral-700">
-              Esta tarima no trae código útil — generar uno propio
-            </label>
+            <p className="text-xs text-neutral-600 mt-1">
+              El sistema genera su propio código para la tarima automáticamente — este campo es solo
+              referencia.
+            </p>
           </div>
-
-          {!sinCodigo && (
-            <div>
-              <label className="text-xs text-neutral-700">Código de tarima</label>
-              <input
-                ref={tarimaInputRef}
-                value={tarimaCodigo}
-                onChange={(e) => setTarimaCodigo(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && kilosInputRef.current?.focus()}
-                placeholder="Escanea el código del proveedor"
-                disabled={!recepcionId || editandoLote}
-                className={`${inputClass} mt-1 disabled:bg-neutral-100`}
-                autoFocus
-              />
-            </div>
-          )}
 
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -515,24 +549,6 @@ export default function RecepcionPage() {
               />
             </div>
             <div>
-              <label className="text-xs text-neutral-700">SKU / Código de producto</label>
-              <input
-                value={sku}
-                onChange={(e) => setSku(e.target.value)}
-                disabled={!recepcionId || editandoLote}
-                className={`${inputClass} mt-1 disabled:bg-neutral-100`}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-neutral-700">Marca</label>
-              <input
-                value={marca}
-                onChange={(e) => setMarca(e.target.value)}
-                disabled={!recepcionId || editandoLote}
-                className={`${inputClass} mt-1 disabled:bg-neutral-100`}
-              />
-            </div>
-            <div>
               <label className="text-xs text-neutral-700">Fecha de empaque</label>
               <input
                 type="date"
@@ -542,34 +558,88 @@ export default function RecepcionPage() {
                 className={`${inputClass} mt-1 disabled:bg-neutral-100`}
               />
             </div>
-            <div className="col-span-2">
-              <label className="text-xs text-neutral-700">Descripción del producto</label>
-              <input
-                value={descripcion}
-                onChange={(e) => setDescripcion(e.target.value)}
-                disabled={!recepcionId || editandoLote}
-                className={`${inputClass} mt-1 disabled:bg-neutral-100`}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-neutral-700">Cajas de origen</label>
-              <input
-                value={cajasOrigen}
-                onChange={(e) => setCajasOrigen(e.target.value)}
-                inputMode="numeric"
-                disabled={!recepcionId || editandoLote}
-                className={`${inputClass} mt-1 disabled:bg-neutral-100`}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-neutral-700">Tarimas a almacenar</label>
-              <input
-                value={tarimasAlmacenar}
-                onChange={(e) => setTarimasAlmacenar(e.target.value)}
-                inputMode="numeric"
-                disabled={!recepcionId || editandoLote}
-                className={`${inputClass} mt-1 disabled:bg-neutral-100`}
-              />
+            <div className="col-span-2 relative">
+              <label className="text-xs text-neutral-700">Producto (busca por descripción o código)</label>
+              <div className="flex gap-2 mt-1">
+                <input
+                  ref={productoInputRef}
+                  value={productoQuery}
+                  onChange={(e) => {
+                    setProductoQuery(e.target.value);
+                    setProductoSeleccionado(false);
+                  }}
+                  placeholder="Ej. pechuga, o 1003"
+                  disabled={!recepcionId || editandoLote}
+                  className={`${inputClass} disabled:bg-neutral-100`}
+                />
+                {productoSeleccionado && (
+                  <button onClick={limpiarProducto} className="text-xs text-neutral-600 underline whitespace-nowrap">
+                    Cambiar
+                  </button>
+                )}
+              </div>
+
+              {productoResultados.length > 0 && (
+                <div className="absolute z-10 bg-white border rounded-lg shadow mt-1 w-full max-h-48 overflow-y-auto">
+                  {productoResultados.map((p) => (
+                    <button
+                      key={p.codigo}
+                      onClick={() => seleccionarProducto(p)}
+                      className="block w-full text-left px-3 py-2 text-sm text-neutral-900 hover:bg-neutral-100 border-b last:border-0"
+                    >
+                      <span className="font-medium">{p.codigo}</span> · {p.descripcion}
+                      {p.marca && ` · ${p.marca}`}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {productoSeleccionado && (
+                <p className="text-xs text-green-700 mt-1">
+                  Código {sku} · {descripcion} {marca && `· ${marca}`}
+                </p>
+              )}
+
+              {!productoSeleccionado &&
+                productoQuery.trim().length >= 2 &&
+                productoResultados.length === 0 &&
+                !mostrarNuevoProducto && (
+                  <div className="mt-1">
+                    <p className="text-xs text-amber-700">No se encontró ese producto en el catálogo.</p>
+                    <button
+                      onClick={() => {
+                        setNuevaDescripcion(productoQuery);
+                        setMostrarNuevoProducto(true);
+                      }}
+                      className="text-xs text-neutral-700 underline"
+                    >
+                      + Registrar como producto nuevo
+                    </button>
+                  </div>
+                )}
+
+              {mostrarNuevoProducto && (
+                <div className="flex gap-2 mt-1">
+                  <input
+                    value={nuevaDescripcion}
+                    onChange={(e) => setNuevaDescripcion(e.target.value)}
+                    placeholder="Descripción del producto"
+                    className={inputClass}
+                  />
+                  <input
+                    value={nuevaMarca}
+                    onChange={(e) => setNuevaMarca(e.target.value)}
+                    placeholder="Marca (opcional)"
+                    className={inputClass}
+                  />
+                  <button
+                    onClick={agregarProductoNuevo}
+                    className="bg-neutral-900 text-white rounded-lg px-3 py-2 text-sm whitespace-nowrap"
+                  >
+                    Asignar código
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -599,15 +669,13 @@ export default function RecepcionPage() {
             )}
           </div>
 
-          {(sinCodigo || tarimaCodigo) && (
-            <button
-              onClick={recibirTarima}
-              disabled={!recepcionId || editandoLote || !kilos}
-              className="bg-neutral-900 disabled:opacity-40 text-white rounded-lg py-3 font-medium"
-            >
-              {sinCodigo ? "Recibir y generar etiqueta" : "Recibir tarima"}
-            </button>
-          )}
+          <button
+            onClick={recibirTarima}
+            disabled={!recepcionId || editandoLote || !kilos}
+            className="bg-neutral-900 disabled:opacity-40 text-white rounded-lg py-3 font-medium"
+          >
+            Recibir y generar etiqueta
+          </button>
 
           {mensaje && <p className="text-red-600 text-sm">{mensaje}</p>}
 

@@ -212,10 +212,24 @@ export default function CapturaPage() {
                 <span>
                   <span
                     className={
-                      m.tipo === "entrada" ? "text-blue-600" : m.tipo === "acomodo" ? "text-green-600" : "text-red-600"
+                      m.tipo === "entrada"
+                        ? "text-blue-600"
+                        : m.tipo === "acomodo"
+                        ? "text-green-600"
+                        : m.tipo === "traspaso_entrada" || m.tipo === "traspaso_salida"
+                        ? "text-purple-600"
+                        : "text-red-600"
                     }
                   >
-                    {m.tipo === "entrada" ? "Recepción" : m.tipo === "acomodo" ? "Acomodo" : "Salida"}
+                    {m.tipo === "entrada"
+                      ? "Recepción"
+                      : m.tipo === "acomodo"
+                      ? "Acomodo"
+                      : m.tipo === "traspaso_entrada"
+                      ? "Traspaso (entra)"
+                      : m.tipo === "traspaso_salida"
+                      ? "Traspaso (sale)"
+                      : "Salida"}
                   </span>{" "}
                   · {m.tarima_codigo}
                 </span>
@@ -230,6 +244,9 @@ export default function CapturaPage() {
         <div className="flex justify-between text-sm border-t pt-3">
           <a href="/recepcion" className="text-neutral-700 underline">
             Ir a Recepción
+          </a>
+          <a href="/traspaso" className="text-neutral-700 underline">
+            Traspaso
           </a>
           <a href="/dashboard" className="text-neutral-700 underline">
             Ver dashboard

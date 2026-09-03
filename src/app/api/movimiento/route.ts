@@ -52,8 +52,8 @@ export async function POST(req: NextRequest) {
 
     await sql`UPDATE tarimas SET estado = 'fuera', ubicacion_id = NULL, orden_fifo = NULL WHERE id = ${tarima.id}`;
     await sql`
-      INSERT INTO movimientos (tarima_id, ubicacion_id, tipo, operador_id)
-      VALUES (${tarima.id}, ${ubicacion.id}, 'salida', ${operador_id})
+      INSERT INTO movimientos (tarima_id, ubicacion_id, tipo, operador_id, cliente_id)
+      VALUES (${tarima.id}, ${ubicacion.id}, 'salida', ${operador_id}, ${tarima.cliente_id})
     `;
 
     return NextResponse.json({ ok: true });
@@ -89,8 +89,8 @@ export async function POST(req: NextRequest) {
       WHERE id = ${tarima.id}
     `;
     await sql`
-      INSERT INTO movimientos (tarima_id, ubicacion_id, tipo, operador_id)
-      VALUES (${tarima.id}, ${ubicacion.id}, 'entrada', ${operador_id})
+      INSERT INTO movimientos (tarima_id, ubicacion_id, tipo, operador_id, cliente_id)
+      VALUES (${tarima.id}, ${ubicacion.id}, 'entrada', ${operador_id}, ${tarima.cliente_id})
     `;
 
     return NextResponse.json({ ok: true });
@@ -140,8 +140,8 @@ export async function POST(req: NextRequest) {
       WHERE id = ${tarima.id}
     `;
     await sql`
-      INSERT INTO movimientos (tarima_id, ubicacion_id, tipo, operador_id)
-      VALUES (${tarima.id}, ${ubicacion.id}, 'acomodo', ${operador_id})
+      INSERT INTO movimientos (tarima_id, ubicacion_id, tipo, operador_id, cliente_id)
+      VALUES (${tarima.id}, ${ubicacion.id}, 'acomodo', ${operador_id}, ${tarima.cliente_id})
     `;
 
     return NextResponse.json({ ok: true });

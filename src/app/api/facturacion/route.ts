@@ -16,25 +16,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
   }
 
-  // Solo cuentan para facturación los movimientos de "acomodo" (entra a cámara,
-  // empieza a ocupar posición pagada) y "salida" (deja de ocupar). La recepción
-  // en el andén no cuenta todavía.
+  // Solo cuentan para facturación los movimientos que suman o restan posiciones
+  // ocupadas: acomodo/traspaso_entrada suman, salida/traspaso_salida restan.
+  // Usamos el cliente_id guardado en cada movimiento (no el actual de la tarima),
+  // así un traspaso a otro cliente no reescribe la historia de facturación pasada.
   const movimientos = await sql`
     SELECT m.tipo, m.fecha
     FROM movimientos m
-    JOIN tarimas t ON t.id = m.tarima_id
-    WHERE t.cliente_id = ${clienteId}
-      AND m.tipo IN ('acomodo', 'salida')
+    WHERE m.cliente_id = ${clienteId}
+      AND m.tipo IN ('acomodo', 'salida', 'traspaso_entrada', 'traspaso_salida')
       AND m.fecha <= ${hasta + " 23:59:59"}
     ORDER BY m.fecha ASC
   `;
+
+  const esEntrada = (tipo: string) => tipo === "acomodo" || tipo === "traspaso_entrada";
 
   // Calculamos el saldo de posiciones ocupadas justo antes del rango pedido
   let saldo = 0;
   let idx = 0;
   const desdeDate = new Date(desde + "T00:00:00");
   while (idx < movimientos.length && new Date(movimientos[idx].fecha) < desdeDate) {
-    saldo += movimientos[idx].tipo === "acomodo" ? 1 : -1;
+    saldo += esEntrada(movimientos[idx].tipo) ? 1 : -1;
     idx++;
   }
 
@@ -59,7 +61,7 @@ export async function GET(req: NextRequest) {
     while (movIdx < movimientos.length) {
       const movFechaStr = new Date(movimientos[movIdx].fecha).toISOString().slice(0, 10);
       if (movFechaStr !== fechaStr) break;
-      if (movimientos[movIdx].tipo === "acomodo") {
+      if (esEntrada(movimientos[movIdx].tipo)) {
         entradasDia++;
         saldo++;
       } else {
