@@ -468,20 +468,31 @@ export default function RecepcionPage() {
             </div>
             {editandoLote ? (
               <div className="grid grid-cols-3 gap-2">
-                <input value={lote} onChange={(e) => setLote(e.target.value)} placeholder="Lote" className={inputClass} />
-                <input
-                  type="date"
-                  value={caducidad}
-                  onChange={(e) => setCaducidad(e.target.value)}
-                  className={inputClass}
-                />
+                <div>
+                  <label className="text-xs text-neutral-700">Lote</label>
+                  <input
+                    value={lote}
+                    onChange={(e) => setLote(e.target.value)}
+                    placeholder="Lote"
+                    className={`${inputClass} mt-1`}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-neutral-700">Caducidad</label>
+                  <input
+                    type="date"
+                    value={caducidad}
+                    onChange={(e) => setCaducidad(e.target.value)}
+                    className={`${inputClass} mt-1`}
+                  />
+                </div>
                 <div>
                   <label className="text-xs text-neutral-700">Fecha de embarque</label>
                   <input
                     type="date"
                     value={embarque}
                     onChange={(e) => setEmbarque(e.target.value)}
-                    className={inputClass}
+                    className={`${inputClass} mt-1`}
                   />
                 </div>
                 <button
