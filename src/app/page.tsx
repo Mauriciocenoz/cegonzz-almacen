@@ -22,7 +22,11 @@ export default function LoginPage() {
     }
     const data = await res.json();
     localStorage.setItem("operador", JSON.stringify(data));
-    router.push("/captura");
+    if (data.rol === "mesa_control") {
+      router.push("/mesa-control");
+    } else {
+      router.push("/captura");
+    }
   }
 
   return (
@@ -49,7 +53,9 @@ export default function LoginPage() {
         >
           Entrar
         </button>
-        <p className="text-xs text-neutral-600 text-center">PIN de prueba: 1234</p>
+        <p className="text-xs text-neutral-600 text-center">
+          PIN operador: 1234 · PIN Mesa de Control: 5678
+        </p>
       </form>
     </main>
   );
